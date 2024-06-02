@@ -46,7 +46,7 @@ HEX_FILE := $(ELF_FILE:.elf=.hex)
 
 
 # List of phony targets that do not have a generated output.
-.PHONY: flash verify erase clean
+.PHONY: flash verify erase clean gdb_server gdb
 
 # Build the application.
 #
@@ -118,6 +118,17 @@ verify: $(HEX_FILE)
 erase:
 	@python3 scripts/loader.py --erase
 
+# The gdb_server and gdb targets are used to start the source level debugging
+# environment for an application. The gdb_server target must be ran in its own
+# terminal since it will block execution while debugging.
+#
+# NOTE: If using WSL, the gdb_server must be started from a Windows prompt or
+#       the ST-Link USB device must be passed through to WSL.
+gdb_server:
+	@python3 scripts/gdb_server.py
+
+gdb: $(ELF_FILE)
+	@python3 scripts/gdb.py $(ELF_FILE)
 
 # Include generated dep (.d) files if they exist.
 #
