@@ -14,48 +14,59 @@ import os
 import subprocess
 import sys
 
-from dataclasses import dataclass
-
-@dataclass
-class CliArgs:
-    """Container class for command line parameters"""
-    hexfile: str
-    erase: bool
-
+class Loader:
+    """Microcontroller application loader utility."""
 
     def __init__(self):
-        parser = argparse.ArgumentParser(
-            description='Microcontroller application loader utility.',
-        )
+        self._cli()
+        self._build_cmd()
 
-        parser.add_argument('-e', '--erase',  action='store_true',
-            help='Erase the controller.')
+        # Make sure the input file exists
+        if self._hexfile and not os.path.exists(self._hexfile):
+            sys.exit(f'Cannot find hexfile: {self.hexfile}')
 
+
+    def _cli(self):
+        """Application CLI"""
+
+        parser = argparse.ArgumentParser(description=self.__doc__)
+
+        parser.add_argument('-e', '--erase',  action='store_true', help='Erase the controller.')
         parser.add_argument('hexfile', nargs='?')
 
         args = parser.parse_args()
 
-        self.hexfile = args.hexfile
-        self.erase   = args.erase
-        
-        if not self.erase and not os.path.exists(self.hexfile):
-            sys.exit(f'Cannot find hexfile: {self.hexfile}')
+        self._hexfile = args.hexfile
+        self._erase   = args.erase
+
+
+    def _build_cmd(self):
+        """Using the CLI parameters build the loader's command"""
+
+        prog_exe = 'STM32_Programmer_CLI'
+
+        # On Windows, add the exe extension.
+        if os.name == 'nt':
+            prog_exe += '.exe'
+
+        self._cmd = [
+            prog_exe,           # programmer utility
+            '-c', 'port=swd',   # using Serial Wire Debug (SWD)
+        ]
+
+        if self._erase:
+            self._cmd.extend(['-e', 'all'])           # full chip erase
+        else:
+            self._cmd.extend(['-w', self._hexfile]) # flash write
+            self._cmd.append('-v')                    # verify write
+            self._cmd.append('-rst')                  # reset processor
+
+
+    def Main(self):
+        print(f'Running command: {" ".join(self._cmd)}')
+        sys.exit(subprocess.run(self._cmd).returncode)
 
 
 if __name__ == "__main__":
-    cli_arg = CliArgs()
-
-    cmd = [
-        'STM32_Programmer_CLI.exe', # programmer utility
-        '-c', 'port=swd',           # using Serial Wire Debug (SWD)
-    ]
-
-    if cli_arg.erase:
-        cmd.extend(['-e', 'all'])           # full chip erase
-    else:
-        cmd.extend(['-w', cli_arg.hexfile]) # flash write
-        cmd.append('-v')                    # verify write
-        cmd.append('-rst')                  # reset processor
-
-    print(f'Running command: {" ".join(cmd)}')
-    sys.exit(subprocess.run(cmd).returncode)
+    app = Loader()
+    app.Main()
