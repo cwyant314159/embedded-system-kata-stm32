@@ -19,10 +19,26 @@ BIN_ROOT_DIR := bin
 
 # Include the exercise specific variables. If no KATA value was specified on the
 # command line, the last KATA will be used by default.
-KATA ?= 0
+KATA ?= 1
 
 ifeq ($(KATA),0)
 include 00_bringup/exercise.mk
+else ifeq ($(KATA), 1)
+include 01_blinky_timer/exercise.mk
+else ifeq ($(KATA),2)
+include 02_sos/exercise.mk
+else ifeq ($(KATA),3)
+include 03_hello_morse/exercise.mk
+else ifeq ($(KATA),4)
+include 04_morse_c_str/exercise.mk
+else ifeq ($(KATA),5)
+include 05_hello_uart/exercise.mk
+else ifeq ($(KATA),6)
+include 06_uart_echo/exercise.mk
+else ifeq ($(KATA),7)
+include 07_sentence_statistics/exercise.mk
+else ifeq ($(KATA),8)
+include 08_morse_encoder/exercise.mk
 else
 $(error Invalid KATA number: $(KATA))
 endif

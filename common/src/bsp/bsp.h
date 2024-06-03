@@ -16,10 +16,10 @@ bool_t bsp_serial_read(u8_t * const byte);
 bool_t bsp_serial_write(u8_t byte);
 bool_t bsp_serial_write_c_str(const char* c_str);
 
-void bsp_register_timer_isr_callback(IsrCallback_t cb);
-bool_t bsp_set_timer_period_uses(u16_t usec);
-bool_t bsp_set_timer_period_msec(u16_t msec);
-bool_t bsp_set_timer_period_sec(u16_t sec);
+void bsp_register_sys_tick_callback(IsrCallback_t cb);
+bool_t bsp_set_sys_tick_period_uses(u32_t usec);
+bool_t bsp_set_sys_tick_period_msec(u32_t msec);
+bool_t bsp_set_sys_tick_period_sec(u32_t sec);
 
 void bsp_spin_delay(size_t iter);
 void bsp_error_trap(void);

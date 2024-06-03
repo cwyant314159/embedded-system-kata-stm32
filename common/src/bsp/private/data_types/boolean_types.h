@@ -44,6 +44,12 @@ typedef enum input_output_t
     E_INPUT  = E_FALSE,
 } io_t;
 
+typedef enum enable_disable_t
+{
+    E_ENABLE  = E_TRUE,
+    E_DISABLE = E_FALSE,
+} enable_t;
+
 #ifdef __cplusplus
 }
 #endif

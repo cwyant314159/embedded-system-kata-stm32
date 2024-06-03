@@ -2,23 +2,26 @@
 
 #include "stm32f1xx.h"
 
+#include "bsp/private/sys_tick/sys_tick.h"
+
 // #include <avr/interrupt.h>
 // #include "bsp/private/processor/reg_io.h"
 // #include "bsp/private/timer/timer.h"
 // #include "bsp/private/uart/uart.h"
 
+/* GPIO definitions for builtin LED */
 #define LED_PORT        (GPIOC)
-
 #define LED_PIN         (13u)
 #define LED_PIN_MASK    (1 << LED_PIN)
 
-#define BSP_TIMER       (TIM1)
-#define MAX_USEC        (32767u)
-#define MAX_MSEC        (262u)
-#define MAX_SEC         (4u)
+/* Conversions for sys_tick configuration */
+#define SEC_PER_SEC     (1U)
+#define MSEC_PER_SEC    (1000U)
+#define USEC_PER_SEC    (1000000U)
 
 static void enable_gpio_clk(const GPIO_TypeDef * const port);
 static void configure_gpio_pin_output(GPIO_TypeDef * const port, u32_t pin);
+static bool_t update_sys_tick_period(u32_t duration, u32_t conversion_factor);
 
 /**
  * @brief BSP initialization
@@ -33,7 +36,7 @@ void bsp_init(void)
     enable_gpio_clk(LED_PORT);                      /* enable clock to GPIO   */
     configure_gpio_pin_output(LED_PORT, LED_PIN);   /* set LED as output      */
     bsp_set_builtin_led(E_OFF);                     /* LED is off on startup  */
-    // timer_16bit_init(BSP_TIMER);    /* initialize (and stop) the timer */
+    sys_tick_init();                                /* setup the sys tick     */
     // uart_init();
 }
 
@@ -148,148 +151,52 @@ bool_t bsp_serial_write_c_str(const char* c_str)
 }
 
 /**
- * @brief Set the BSP's timer interrupt callback.
+ * @brief Set the BSP's system tick interrupt callback.
  * 
- * @param[in] cb user supplied callback to handle BSP timer interrupts.
+ * @param[in] cb user supplied callback to handle BSP system tick interrupts.
  */
-void bsp_register_timer_isr_callback(IsrCallback_t cb)
+void bsp_register_sys_tick_callback(IsrCallback_t cb)
 {
-    // timer_16bit_set_callback(BSP_TIMER, cb);
+    sys_tick_set_callback(cb);
 }
 
 /**
  * @brief Set the BSP timer's period in microseconds and start running.
- * 
- * @note The timer can only handle a microsecond range of 0 (off) to 32767
- * microseconds
  * 
  * @param[in] usec timer interval in microseconds
  * 
  * @retval E_TRUE  - successfully configured the timer
  * @retval E_FALSE - failed to set timer's interval
  */
-bool_t bsp_set_timer_period_uses(u16_t usec)
+bool_t bsp_set_sys_tick_period_uses(u32_t usec)
 {
-    // static const u16_t PRESCALED_TICKS_PER_USEC = 2u;
-
-    bool_t result;
-    // u16_t ticks;
-
-    /* assume configuration will fail */
-    result = E_FALSE;
-
-    // /*
-    //  * Changing the period of the timer requires resetting it. Call the timer's
-    //  * initialization function to stop the timer and put it in a known starting
-    //  * state.
-    //  */
-    // timer_16bit_init(BSP_TIMER);
-
-    // if (MAX_USEC >= usec) {
-    //     /* 
-    //      * To have microsecond accuracy, the timer must be configured with a
-    //      * prescaler of 8 which means that each microsecond is 2 ticks 
-    //      * 
-    //      * Remember that we need to subtract 1 from our calculated tick value to
-    //      * compensate for the tick back to 0.
-    //      */
-    //     ticks = (usec * PRESCALED_TICKS_PER_USEC) - 1;
-    //     timer_16bit_set_ticks(BSP_TIMER, ticks);
-    //     timer_16bit_set_prescaler(BSP_TIMER, E_TIMER_PRESCALE_8);
-    //     result = E_TRUE;
-    // }
-
-    return result;
+    return update_sys_tick_period(usec, USEC_PER_SEC);
 }
 
 /**
  * @brief Set the BSP timer's period in milliseconds and start running.
- * 
- * @note The timer can only handle a millisecond range of 0 (off) to 262
- * milliseconds
  * 
  * @param[in] msec timer interval in milliseconds
  * 
  * @retval E_TRUE  - successfully configured the timer
  * @retval E_FALSE - failed to set timer's interval
  */
-bool_t bsp_set_timer_period_msec(u16_t msec)
+bool_t bsp_set_sys_tick_period_msec(u32_t msec)
 {
-    // static const u16_t PRESCALED_TICKS_PER_MSEC = 250u;
-
-    bool_t result;
-    // u16_t ticks;
-
-    /* assume configuration will fail */
-    result = E_FALSE;
-
-    // /*
-    //  * Changing the period of the timer requires resetting it. Call the timer's
-    //  * initialization function to stop the timer and put it in a known starting
-    //  * state.
-    //  */
-    // timer_16bit_init(BSP_TIMER);
-
-    // if (MAX_MSEC >= msec) {
-    //     /*
-    //     * To have millisecond accuracy, the timer must be configured with a
-    //     * prescaler of 64 which means that each microsecond is 250 ticks.
-    //     * 
-    //     * Remember that we need to subtract 1 from our calculated tick value to
-    //     * compensate for the tick back to 0.
-    //     */
-    //     ticks = (msec * PRESCALED_TICKS_PER_MSEC) - 1;
-    //     timer_16bit_set_ticks(BSP_TIMER, ticks);
-    //     timer_16bit_set_prescaler(BSP_TIMER, E_TIMER_PRESCALE_64);
-    //     result = E_TRUE;
-    // }
-
-    return result;
+    return update_sys_tick_period(msec, MSEC_PER_SEC);
 }
 
 /**
  * @brief Set the BSP timer's period in seconds and start running.
- * 
- * @note The timer can only handle a second range of 0 (off) to 4 seconds
  * 
  * @param[in] sec timer interval in seconds
  * 
  * @retval E_TRUE  - successfully configured the timer
  * @retval E_FALSE - failed to set timer's interval
  */
-bool_t bsp_set_timer_period_sec(u16_t sec)
+bool_t bsp_set_sys_tick_period_sec(u32_t sec)
 {
-    // static const u16_t PRESCALED_TICKS_PER_SEC = 15625u;
-
-    bool_t result;
-    // u16_t ticks;
-
-    /* assume configuration will fail */
-    result = E_FALSE;
-
-    // /*
-    //  * Changing the period of the timer requires resetting it. Call the timer's
-    //  * initialization function to stop the timer and put it in a known starting
-    //  * state.
-    //  */
-    // timer_16bit_init(BSP_TIMER);
-
-    // if (MAX_SEC >= sec) {
-
-    //     /*
-    //     * To have second accuracy, the timer must be configured with a prescaler
-    //     * of 1024 which means that each microsecond is 15625 ticks.
-    //     *  
-    //     * Remember that we need to subtract 1 from our calculated tick value to
-    //     * compensate for the tick back to 0.
-    //     */
-    //     ticks = (sec * PRESCALED_TICKS_PER_SEC) - 1;
-    //     timer_16bit_set_ticks(BSP_TIMER, ticks);
-    //     timer_16bit_set_prescaler(BSP_TIMER, E_TIMER_PRESCALE_1024);
-    //     result = E_TRUE;
-    // }
-
-    return result;
+    return update_sys_tick_period(sec, SEC_PER_SEC);
 }
 
 /**
@@ -332,11 +239,11 @@ void bsp_error_trap(void)
 static void enable_gpio_clk(const GPIO_TypeDef * const port)
 {
     const u32_t en = port == GPIOA ? RCC_APB2ENR_IOPAEN :
-                        port == GPIOB ? RCC_APB2ENR_IOPBEN :
-                        port == GPIOC ? RCC_APB2ENR_IOPCEN :
-                        port == GPIOD ? RCC_APB2ENR_IOPDEN :
-                        port == GPIOE ? RCC_APB2ENR_IOPEEN :
-                                        0                  ;
+                     port == GPIOB ? RCC_APB2ENR_IOPBEN :
+                     port == GPIOC ? RCC_APB2ENR_IOPCEN :
+                     port == GPIOD ? RCC_APB2ENR_IOPDEN :
+                     port == GPIOE ? RCC_APB2ENR_IOPEEN :
+                                     0                  ;
 
     RCC->APB2ENR |= en;
 }
@@ -388,4 +295,52 @@ static void configure_gpio_pin_output(GPIO_TypeDef * const port, u32_t pin)
      * registers has the IO clear bits in the upper 16 bits.
      */
     port->BSRR = 1 << (pin + 16);
+}
+
+/* 
+ * Update the system tick to the desired duration given the duration conversion
+ * factor (e.g. milliseconds per second, microseconds per second, etc).
+ */
+static bool_t update_sys_tick_period(u32_t duration, u32_t conversion_factor)
+{
+    bool_t result;
+    u32_t  conversion;
+    u32_t  ticks;
+
+    /* Compute the conversion from CPU frequency to ticks for the provided 
+       conversion factor. To prevent a divide by 0 error, that case forces the
+       conversion to evaluate to 0, so later logic can terminate gracefully. */
+    if (0 == conversion_factor) {
+        conversion = 0;
+    } else {
+        conversion = (F_CPU_HZ / SYS_TICK_CLK_DIV) / conversion_factor;
+    }
+
+    /* Convert the duration into CPU ticks */
+    ticks = duration * conversion;
+
+    /* If the number of ticks is within the system tick's limits, turn off the
+       sys_tick and update the period. Otherwise, leave the system tick alone
+       and report a failure. 
+       
+       The first conditional handles the case where ticks is computed to be 0.
+       This can happen for several reasons:
+        - The conversion factor argument was 0
+        - The integer division of the conversion evalutated to 0
+        - The caller passed in a duration argument of 0
+       */
+    if (0 == ticks) {
+        result = E_FALSE;
+    } else if (SYS_TICK_MAX_TICK_VAL >= ticks) {
+        sys_tick_enable(E_DISABLE);
+        sys_tick_set_ticks(ticks);
+        result = E_TRUE;
+    } else {
+        result = E_FALSE;
+    }
+
+    /* Even if the period update failed, re-enable the system tick. If the it is
+       already running, this will do nothing. */
+    sys_tick_enable(E_ENABLE);
+    return result;
 }
