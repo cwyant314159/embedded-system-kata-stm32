@@ -19,7 +19,7 @@ BIN_ROOT_DIR := bin
 
 # Include the exercise specific variables. If no KATA value was specified on the
 # command line, the last KATA will be used by default.
-KATA ?= 1
+KATA ?= 2
 
 ifeq ($(KATA),0)
 include 00_bringup/exercise.mk
