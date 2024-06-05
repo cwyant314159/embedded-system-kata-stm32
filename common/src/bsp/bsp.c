@@ -2,12 +2,9 @@
 
 #include "stm32f1xx.h"
 
+#include "bsp/sw_timers.h"
 #include "bsp/private/sys_tick/sys_tick.h"
 
-// #include <avr/interrupt.h>
-// #include "bsp/private/processor/reg_io.h"
-// #include "bsp/private/timer/timer.h"
-// #include "bsp/private/uart/uart.h"
 
 /* GPIO definitions for builtin LED */
 #define LED_PORT        (GPIOC)
@@ -37,6 +34,7 @@ void bsp_init(void)
     configure_gpio_pin_output(LED_PORT, LED_PIN);   /* set LED as output      */
     bsp_set_builtin_led(E_OFF);                     /* LED is off on startup  */
     sys_tick_init();                                /* setup the sys tick     */
+    sw_timer_init();                                /* setup software timers  */
     // uart_init();
 }
 
@@ -48,7 +46,7 @@ void bsp_init(void)
  */
 void bsp_enable_interrupts(void)
 {
-    // sei(); /* interrupt enable from the AVR header */
+    /* NOP for ARM processors */
 }
 
 /**

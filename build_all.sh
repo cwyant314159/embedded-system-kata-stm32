@@ -4,7 +4,7 @@
 
 set -e # exit on errors
 
-FINAL_EXERCISE=3
+FINAL_EXERCISE=4
 
 for i in $(seq 0 $FINAL_EXERCISE); do
     KATA=$i make build
