@@ -29,7 +29,7 @@ _COMMON_FLAGS += --specs=nosys.specs
 _COMPILE_FLAGS := $(_COMMON_FLAGS)
 _COMPILE_FLAGS += -MMD
 _COMPILE_FLAGS += -MP
-_COMPILE_FLAGS += -g
+_COMPILE_FLAGS += -ggdb3
 _COMPILE_FLAGS += -fstack-usage
 _COMPILE_FLAGS += -ffunction-sections
 _COMPILE_FLAGS += -fdata-sections

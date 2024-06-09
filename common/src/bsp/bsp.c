@@ -3,13 +3,18 @@
 #include "stm32f1xx.h"
 
 #include "bsp/sw_timers.h"
+#include "bsp/private/gpio/gpio.h"
 #include "bsp/private/sys_tick/sys_tick.h"
 
+/* TODO come up with table driven scheme for GPIO */
 
 /* GPIO definitions for builtin LED */
 #define LED_PORT        (GPIOC)
-#define LED_PIN         (13u)
-#define LED_PIN_MASK    (1 << LED_PIN)
+#define LED_PIN         (GPIO_PIN_13)
+#define LED_PIN_MODE    (GPIO_MODE_OUTPUT_50MHZ)
+#define LED_PIN_CONF    (GPIO_CONF_OUT_GENERAL_PUSH_PULL)
+#define LED_ON_BIT      (E_BIT_0)
+#define LED_OFF_BIT     (E_BIT_1)
 
 /* Conversions for sys_tick configuration */
 #define SEC_PER_SEC     (1U)
@@ -30,12 +35,17 @@ static bool_t update_sys_tick_period(u32_t duration, u32_t conversion_factor);
  */
 void bsp_init(void)
 {
-    enable_gpio_clk(LED_PORT);                      /* enable clock to GPIO   */
-    configure_gpio_pin_output(LED_PORT, LED_PIN);   /* set LED as output      */
-    bsp_set_builtin_led(E_OFF);                     /* LED is off on startup  */
-    sys_tick_init();                                /* setup the sys tick     */
-    sw_timer_init();                                /* setup software timers  */
-    // uart_init();
+    /* Configure the builtin LED GPIO (default to LED off) */
+    gpio_init(LED_PORT);
+    gpio_set_mode(LED_PORT, LED_PIN, LED_PIN_MODE,
+        LED_PIN_CONF);
+    bsp_set_builtin_led(E_OFF);
+
+    /* Initialize the system tick hardware */
+    sys_tick_init();
+
+    /* Initialize the software timer facility */
+    sw_timer_init();
 }
 
 /**
@@ -54,7 +64,7 @@ void bsp_enable_interrupts(void)
  */
 void bsp_toggle_builtin_led(void)
 {
-    if ((LED_PORT->ODR & LED_PIN_MASK) == 0x00) {
+    if (LED_ON_BIT == gpio_read_pin(LED_PORT, LED_PIN)) {
         bsp_set_builtin_led(E_OFF);
     } else {
         bsp_set_builtin_led(E_ON);
@@ -68,20 +78,9 @@ void bsp_toggle_builtin_led(void)
  */
 void bsp_set_builtin_led(on_off_t led_state)
 {
-    u32_t bit_offset;
-
-    /*
-     * The BSRR is used to atomically set and reset the pins of the port. The
-     * upper 16 bits reset the corresponding pin when written with a 1. The 
-     * lower 16 bits set the corresponding pin.
-     */
-    if (E_OFF == led_state) {
-        bit_offset = 0;
-    } else {
-        bit_offset = 16;
-    }
-
-    LED_PORT->BSRR |= 1 << (LED_PIN + bit_offset);
+    const bit_t led_bit_state = (E_ON == led_state) ? LED_ON_BIT  :
+                                                      LED_OFF_BIT ;
+    gpio_write_pin(LED_PORT, LED_PIN, led_bit_state);
 }
 
 /**
@@ -229,70 +228,6 @@ void bsp_error_trap(void)
         bsp_toggle_builtin_led();
         bsp_spin_delay(5);
     }
-}
-
-/*
- * Enable the given GPIO port peripheral clock in the RCC module.
- */
-static void enable_gpio_clk(const GPIO_TypeDef * const port)
-{
-    const u32_t en = port == GPIOA ? RCC_APB2ENR_IOPAEN :
-                     port == GPIOB ? RCC_APB2ENR_IOPBEN :
-                     port == GPIOC ? RCC_APB2ENR_IOPCEN :
-                     port == GPIOD ? RCC_APB2ENR_IOPDEN :
-                     port == GPIOE ? RCC_APB2ENR_IOPEEN :
-                                     0                  ;
-
-    RCC->APB2ENR |= en;
-}
-
-/*
- * Configure the given GPIO pin as a push-pull fast output.
- */
-static void configure_gpio_pin_output(GPIO_TypeDef * const port, u32_t pin)
-{
-    /*
-     * Exit the function early if the pin number is too high. 
-     */
-    if (pin > 15) return;
-
-    /*
-     * The GPIO pin configuration is distributed as 4 bits per pin in two
-     * registers. For GPIO pins 0-7 the CRL register is used. Pins 8-15 are
-     * configured in CRH. The offset for a given GPIO pins configuration
-     * register can be computed with the following formula:
-     *
-     *  offset = (pin % 8) * 4
-     * 
-     * or without using divides and multiplies
-     * 
-     *  offset = (pin & 7) << 2;
-     */
-    const u32_t offset = (pin & 7) << 2;
-
-    /* 
-     * For push-pull outputs, the upper 2 configuration bits are 0x00. To
-     * enable fast mode on a pin the lower 2 configuration bits are 0x11;
-     */
-    const u32_t pin_cfg = 0x0011;
-    
-    /*
-     * Configure either the high or low configuration register based on the pin
-     * number.
-     */
-    const u32_t mask = 0xFFFF  << offset;
-    const u32_t cfg  = pin_cfg << offset;
-    if (pin <= 7) {
-        port->CRL = (port->CRL & ~mask) | cfg;
-    } else {
-        port->CRH = (port->CRH & ~mask) | cfg;
-    }
-
-    /*
-     * Default the newly configured pins to low. The atomic set and clear
-     * registers has the IO clear bits in the upper 16 bits.
-     */
-    port->BSRR = 1 << (pin + 16);
 }
 
 /* 

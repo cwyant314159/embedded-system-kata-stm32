@@ -60,7 +60,6 @@ OBJS := $(foreach obj, $(OBJS), $(addprefix $(OBJ_DIR)/, $(obj)))
 ELF_FILE := $(BINARY_DIR)/$(BINARY_NAME).elf
 HEX_FILE := $(ELF_FILE:.elf=.hex)
 
-
 # List of phony targets that do not have a generated output.
 .PHONY: flash verify erase clean gdb_server gdb
 
