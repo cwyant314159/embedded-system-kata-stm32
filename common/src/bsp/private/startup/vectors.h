@@ -59,7 +59,6 @@ void USART3_IRQHandler(void);
 void EXTI15_10_IRQHandler(void);
 void RTC_Alarm_IRQHandler(void);
 void USBWakeUp_IRQHandler(void);
-void TIM8_BRK_IRQHandler_IRQHandler(void);
 
 /* Datasheet says these exist, but the CMSIS IRQ definitions stop before these
    IRQ definitions. */
