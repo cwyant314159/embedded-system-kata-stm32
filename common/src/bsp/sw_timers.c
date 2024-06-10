@@ -121,7 +121,7 @@ u32_t sw_timer_usec(SwTimerHandle_t t)
 {
     u32_t usec;
     u32_t lapsed_ticks;
-    u32_t  curr_ticks;
+    u32_t curr_ticks;
 
     if (SW_TIMER_NO_TIMER == t) {
         usec = 0u;
@@ -130,7 +130,7 @@ u32_t sw_timer_usec(SwTimerHandle_t t)
         curr_ticks = HW_TIMER->CNT;
 
         /* When the current ticks is less than the previous ticks, a rollover 
-           occurred and an offset of 256 (ticks to get back to 0) needs to be
+           occurred and an offset of 0xFFFF (ticks to get back to 0) needs to be
            accounted for in the lapsed ticks. */
         if (curr_ticks < t->prev_ticks) {
             lapsed_ticks = (curr_ticks + TICK_ROLLOVER_OFFSET) - t->prev_ticks;
@@ -168,7 +168,6 @@ static void init_hw_timer(void)
     /* Verify the above calculation didn't overflow or cause a zero prescaler */
     const u32_t TIMER_FREQ_VERIFICATION = F_CPU_HZ / (PRESCALER + 1);
     if (TIMER_FREQ_VERIFICATION != TIMER_FREQ) {
-        while(1);
         bsp_error_trap();
     }
 
@@ -177,7 +176,8 @@ static void init_hw_timer(void)
     /*
      * Configure the timer to overflow at the maximum timer count.
      */
-    HW_TIMER->CNT = 0;              /* ensure the count starts at 0 */
-    HW_TIMER->ARR = 0xFFFF;         /* maximum counter value        */
-    HW_TIMER->CR1 = TIM_CR1_CEN;    /* enable timer's counter       */
+    HW_TIMER->CNT = 0;              /* ensure the count starts at 0          */
+    HW_TIMER->ARR = 0xFFFF;         /* maximum counter value                 */
+    HW_TIMER->EGR |= TIM_EGR_UG;    /* force update event to load new config */
+    HW_TIMER->CR1 = TIM_CR1_CEN;    /* enable timer's counter                */
 }
