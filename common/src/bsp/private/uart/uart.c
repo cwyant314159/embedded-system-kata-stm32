@@ -1,8 +1,11 @@
 #include "bsp/private/uart/uart.h"
 
+#include <string.h>
+
+#include "bsp/bsp.h"
+#include "bsp/private/startup/vectors.h"
 #include "stm32f1xx.h"
 #include "types.h"
-
 
 /* Baud rate configuration. See section 27.3.4 of the reference manual for 
    equations and rationale. */
@@ -11,8 +14,23 @@
 #define DIV_WHOLE   ((u32_t) DIV)
 #define DIV_FRAC    ((u32_t)((DIV - DIV_WHOLE) * 16))
 
-/* Polling operation attempts */
-#define MAX_POLL_ATTEMPTS   (1000)
+/* Ring buffer infrastructure */
+#define BYTE_RING_MAX_SIZE  (256u)
+#define PRIVATE_RING_SIZE   BYTE_RING_MAX_SIZE  /* set ring size */
+#define PRIVATE_RING_VOLATILE_DECL              /* byte rings in this module are volatile */
+#include "utils/private_ring.h"
+
+PRIVATE_RING_DECLARATIONS(ByteRing, u8_t)                /* create ring type of bytes */
+PRIVATE_RING_DECLARE(static volatile ByteRing, rx_ring); /* bytes to read             */
+PRIVATE_RING_DECLARE(static volatile ByteRing, tx_ring); /* bytes to write            */
+
+/* Readability macros for private ring functions */
+#define BYTE_RING_INIT(var_name)       PRIVATE_RING_INIT(ByteRing, var_name)
+#define BYTE_RING_IS_EMPTY(var_name)   PRIVATE_RING_IS_EMPTY(ByteRing, var_name)
+#define BYTE_RING_IS_FULL(var_name)    PRIVATE_RING_IS_FULL(ByteRing, var_name)
+#define BYTE_RING_PUSH(var_name, data) PRIVATE_RING_PUSH(ByteRing, var_name, data)
+#define BYTE_RING_POP(var_name)        PRIVATE_RING_POP(ByteRing, var_name)
+#define BYTE_RING_PEEK(var_name)       PRIVATE_RING_PEEK(ByteRing, var_name)
 
 static void usart_clock_enable(USART_TypeDef* p_uart);
 
@@ -21,6 +39,25 @@ static void usart_clock_enable(USART_TypeDef* p_uart);
  */
 void uart_init(USART_TypeDef* p_uart)
 {
+    /* Since this module relies on global data, we are going to limit the usage
+       of this driver to USART1 only. */
+    if (USART1 != p_uart) {
+        bsp_error_trap();
+    }
+
+    /* Initialize byte rings */
+    BYTE_RING_INIT(rx_ring);
+    BYTE_RING_INIT(tx_ring);
+
+    /* Configure the USART interrupt for about middle of the range of available
+       interrupt priorities.
+     */
+    const u32_t usart_irq_prio = (1UL << __NVIC_PRIO_BITS) / 2;
+    NVIC_SetPriority(USART1_IRQn, usart_irq_prio);
+
+    /* Enable the USART interrupt in the NVIC */
+    NVIC_EnableIRQ(USART1_IRQn);
+
     /* Enable the USART's clock in the RCC */
     usart_clock_enable(p_uart);
 
@@ -42,7 +79,7 @@ void uart_init(USART_TypeDef* p_uart)
        zero'ing the control registers. */
  
     /* Enable USART transmitter and receiver. */
-    p_uart->CR1 |= (USART_CR1_TE | USART_CR1_RE);
+    p_uart->CR1 |= (USART_CR1_RXNEIE | USART_CR1_TE | USART_CR1_RE);    
 }
 
 /**
@@ -54,36 +91,11 @@ void uart_init(USART_TypeDef* p_uart)
 bool_t uart_data_available(USART_TypeDef* p_uart)
 {
     bool_t available;
-    u32_t  dummy;
-    size_t attempts_left;
-    u32_t  status_reg;
 
-    /* Assume data is not available by default. */
-    available = E_FALSE;
-
-    /* Inspect the status register for USART state */
-    status_reg = p_uart->SR;
-
-    if (0 != (status_reg & USART_SR_ORE)) {
-        /* When a receiver overrun is detected, empty the data register. The
-           extra read is to just be sure the overrun has been cleared. */
-        dummy = p_uart->DR;
-        dummy = p_uart->DR;
-        (void)dummy; /* appease the compiler's set but unused warning */
+    if (E_TRUE == BYTE_RING_IS_EMPTY(rx_ring)) {
+        available = E_FALSE;
     } else {
-        /* Poll the status register until the receive complete bit is set or the
-           timeout occurs. */
-        attempts_left = MAX_POLL_ATTEMPTS;
-
-        do {
-            if (0 != (status_reg & USART_SR_RXNE)) {
-                available = E_TRUE;
-                break;
-            }
-
-            status_reg    = p_uart->SR;
-            attempts_left -= 1;
-        } while (0 != attempts_left);
+        available = E_TRUE;
     }
 
     return available;
@@ -92,18 +104,20 @@ bool_t uart_data_available(USART_TypeDef* p_uart)
 /**
  * @brief Read a byte from the driver's buffer
  *
- * @return The contents of the UART's receiver buffer.
+ * @return A byte received over the UART or NULL ('\0') if there are no bytes
+ * left.
  */
 u8_t uart_read(USART_TypeDef* p_uart)
 {
-    u32_t data;
+    u8_t byte;
 
-    /* Do a blind read of the data register. It is the caller's responsiblity to
-       ensure there is data in the RX buffer. */
-    data = p_uart->DR;
+    if (E_TRUE == uart_data_available(p_uart)) {
+        byte = BYTE_RING_POP(rx_ring);
+    } else {
+        byte = '\0';
+    }
 
-    /* Only return the 8-bit byte. */
-    return data & 0xFF;
+    return byte;
 }
 
 /**
@@ -116,24 +130,50 @@ u8_t uart_read(USART_TypeDef* p_uart)
  */
 bool_t uart_write(USART_TypeDef* p_uart, u8_t byte)
 {
-    bool_t success;
-    size_t attempts_left;
+    bool_t result;
 
-    /* Assume failure by default. */
-    success = E_FALSE;
+    /* If the ring is not full, add the byte to the buffer. */
+    if (E_FALSE == BYTE_RING_IS_FULL(tx_ring)) {
+        BYTE_RING_PUSH(tx_ring, byte);
+        result = E_TRUE;
+    } else {
+        result = E_FALSE;
+    }
 
-    /* Poll the transmit data register empty flag until it is set. */
-    attempts_left = MAX_POLL_ATTEMPTS;
+    /* Regardless of the buffer state, we need to enable the transmitter to
+       empty the byte we just added (or the back up of bytes preventing the
+       ring push) */
+    p_uart->CR1 |= USART_CR1_TXEIE;
 
-    do {
-        if (0 != (p_uart->SR & USART_SR_TXE)) {
-            p_uart->DR = byte;
-            success = E_TRUE;
-            break;
+    return result;
+}
+
+void USART1_IRQHandler(void)
+{
+    u32_t status_reg;
+    u32_t data;
+
+    /* Inspect the status register for USART state */
+    status_reg = USART1->SR;
+
+    if (0 != (status_reg & USART_SR_TXE)) {
+        /* Transmitter empty interrupt */
+        if (E_TRUE == BYTE_RING_IS_EMPTY(tx_ring)) {
+            USART1->CR1 &= ~USART_CR1_TXEIE;
+        } else {
+            data = BYTE_RING_POP(tx_ring);
+            USART1->DR = data;
         }
-    } while(0 != attempts_left);
+    } 
+    
+    if (0 != (status_reg & USART_SR_RXNE)) {
+        data = USART1->DR;
 
-    return success;
+        if (E_FALSE == BYTE_RING_IS_FULL(rx_ring)) {
+            data &= 0xFF;
+            BYTE_RING_PUSH(rx_ring, data);
+        }
+    }
 }
 
 static void usart_clock_enable(USART_TypeDef* p_uart)

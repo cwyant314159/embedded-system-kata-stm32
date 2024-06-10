@@ -2,7 +2,6 @@
 #include "bsp/sw_timers.h"
 #include "types.h"
 
-static SwTimerHandle_t delay_timer;
 static const u32_t MESSAGE_DELAY_SEC = 1u;
 
 static void say_hello(void);
@@ -14,9 +13,11 @@ static void say_hello(void);
  */
 int main(void)
 {
+    SwTimerHandle_t delay_timer;
+
     /* Initialize the hardware and software modules */
     bsp_init(); /* board support (e.g. the LED) */
-    
+
     /* initialize data for the delay timer */
     delay_timer = sw_timer_acquire();
     if (SW_TIMER_NO_TIMER == delay_timer) {
